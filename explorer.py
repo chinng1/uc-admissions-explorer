@@ -187,6 +187,27 @@ def load_school_data(school: str, city: str, campus: str = "Universitywide") -> 
 
 
 @st.cache_data
+def load_school_by_campus(school: str, city: str) -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql("""
+        SELECT r.campus, r.year,
+               MAX(CASE WHEN r.count_type='App' THEN r.all_count END) AS applicants,
+               MAX(CASE WHEN r.count_type='Adm' THEN r.all_count END) AS admits,
+               MAX(CASE WHEN r.count_type='Enr' THEN r.all_count END) AS enrollees,
+               MAX(g.app_gpa) AS app_gpa, MAX(g.adm_gpa) AS adm_gpa, MAX(g.enr_gpa) AS enr_gpa
+        FROM race_ethnicity r
+        LEFT JOIN gpa g ON g.school = r.school AND g.city = r.city
+                       AND g.year = r.year AND g.campus = r.campus
+        WHERE r.school = ? AND r.city = ? AND r.campus != 'Universitywide'
+        GROUP BY r.campus, r.year
+        ORDER BY r.campus, r.year
+    """, conn, params=[school, city])
+    df["admit_rate"] = (df["admits"] / df["applicants"] * 100).round(1)
+    df["yield_rate"] = (df["enrollees"] / df["admits"] * 100).round(1)
+    return df
+
+
+@st.cache_data
 def load_compare_data(school_city_pairs: list, campus: str = "Universitywide") -> pd.DataFrame:
     """school_city_pairs: list of (school, city, display_label) tuples"""
     if not school_city_pairs:
@@ -710,7 +731,44 @@ else:  # School lookup
                 m4.metric("Enrolled", int(enr_row["all_count"].iloc[0]) if not enr_row.empty else "—")
                 m5.metric("App GPA", f"{gpa_row['app_gpa'].iloc[0]:.2f}" if not gpa_row.empty and pd.notna(gpa_row['app_gpa'].iloc[0]) else "—")
 
-                tab1, tab2, tab3, tab4 = st.tabs(["📈 Volume & Rates", "🎓 GPA Trends", "👥 Race/Ethnicity", "⚧ Gender"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Volume & Rates", "🎓 GPA Trends", "👥 Race/Ethnicity", "⚧ Gender", "🏫 By Campus"])
+
+                with tab5:
+                    bc = load_school_by_campus(selected_school, info["city"])
+                    if bc.empty:
+                        st.info("No per-campus data for this school.")
+                    else:
+                        bc_metrics = {
+                            "admit_rate": "Admit %", "yield_rate": "Yield %",
+                            "applicants": "Applicants", "admits": "Admits",
+                            "enrollees": "Enrollees", "adm_gpa": "Admit GPA",
+                        }
+                        bc_metric = st.radio("Metric", list(bc_metrics), horizontal=True,
+                                             format_func=bc_metrics.get, key="bc_metric")
+                        fig_bc = px.line(bc.dropna(subset=[bc_metric]), x="year", y=bc_metric,
+                                         color="campus", markers=True,
+                                         title=f"{bc_metrics[bc_metric]} by Campus",
+                                         labels={"year": "Year", bc_metric: bc_metrics[bc_metric],
+                                                 "campus": "Campus"})
+                        if bc_metric in ("admit_rate", "yield_rate"):
+                            fig_bc.update_layout(yaxis=dict(range=[0, 105]))
+                        fig_bc.update_layout(legend=dict(orientation="h", y=-0.3), height=420,
+                                             margin=dict(t=40, b=10))
+                        st.plotly_chart(fig_bc, use_container_width=True)
+                        st.caption("Click campus names in the legend to hide or show them.")
+
+                        bc_year = int(bc["year"].max())
+                        snap_bc = (bc[bc["year"] == bc_year]
+                                   .sort_values("admit_rate", ascending=False)
+                                   [["campus", "applicants", "admits", "enrollees",
+                                     "admit_rate", "yield_rate", "app_gpa", "adm_gpa"]]
+                                   .rename(columns={
+                                       "campus": "Campus", "applicants": "Applicants",
+                                       "admits": "Admits", "enrollees": "Enrollees",
+                                       "admit_rate": "Admit %", "yield_rate": "Yield %",
+                                       "app_gpa": "App GPA", "adm_gpa": "Admit GPA"}))
+                        st.caption(f"{bc_year} by campus (highest admit rate first)")
+                        st.dataframe(snap_bc, use_container_width=True, hide_index=True)
 
                 with tab1:
                     c1, c2 = st.columns(2)
