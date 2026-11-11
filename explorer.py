@@ -267,7 +267,13 @@ def load_region_data(county: str, city: str = "", campus: str = "Universitywide"
                SUM(white) AS white,
                SUM(domestic_unknown) AS domestic_unknown,
                SUM(intl) AS intl
-        FROM race_ethnicity {where}
+        FROM (
+            -- The table holds exact duplicate rows; count each once.
+            SELECT DISTINCT school, school_id, city, county_state_country, campus,
+                   year, count_type, all_count, african_american, american_indian,
+                   hispanic_latinx, pacific_islander, asian, white, domestic_unknown, intl
+            FROM race_ethnicity {where}
+        )
         GROUP BY year, count_type ORDER BY year, count_type
     """, conn, params=params if params else None)
     return df
