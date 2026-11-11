@@ -661,19 +661,28 @@ else:  # School lookup
                     return f"{name} ({row['city'].title()})"
                 return name
             labels = results.apply(school_label, axis=1).tolist()
-            label_to_school = dict(zip(labels, results["school"].tolist()))
+            keys = list(zip(results["school"], results["city"]))
+            # Keep the chosen school selected when the campus/filters change the list.
+            remembered = st.session_state.get("lookup_school")
+            idx = keys.index(remembered) if remembered in keys else 0
             selected_label = st.radio(
                 "Select a school",
                 labels,
+                index=idx,
                 label_visibility="collapsed",
             )
-            selected_school = label_to_school[selected_label]
+            sel_pos = labels.index(selected_label)
+            if sel_pos != idx or remembered in keys:
+                st.session_state.lookup_school = keys[sel_pos]
+            selected_school = keys[sel_pos][0]
+            lookup_city = keys[sel_pos][1]
 
     with col_right:
         if results.empty:
             st.info("Adjust filters to find schools.")
         else:
-            info = results[results["school"] == selected_school].iloc[0]
+            info = results[(results["school"] == selected_school)
+                           & (results["city"] == lookup_city)].iloc[0]
             data = load_school_data(selected_school, info["city"], selected_campus)
             re_df = data["re"]
             gnd_df = data["gnd"]
