@@ -1,0 +1,14 @@
+*.db
+*.db.part
+*.db.gz
+raw_downloads/
+raw_private/
+raw_csv/
+private_school_logs/
+*.log
+*_log.txt
+japan_trip_itinerary.csv
+local host address.rtf
+.claude/
+__pycache__/
+.DS_Store
